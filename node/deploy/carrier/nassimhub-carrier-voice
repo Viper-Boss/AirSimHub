@@ -1,0 +1,39 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# UFI003 carrier preference. Runtime only: no MBN, NV, firmware or SIM writes.
+set -eu
+export LC_ALL=C
+helper=/usr/local/libexec/nassimhub-voice-domain
+compatible=/proc/device-tree/compatible
+marker=/etc/nassimhub/local-volte.enabled
+owned=/run/nassimhub-carrier-voice/ps-applied
+test -f "$marker" || exit 0
+tr '\000' '\n' <"$compatible" | grep -qx 'thwc,ufi003' || exit 0
+sample() {
+ report=$(mmcli --timeout=3 -m any -K 2>/dev/null) || return 0
+ sim=$(printf '%s\n' "$report" | awk '$1 == "modem.generic.sim" && $2 == ":" { print $3; exit }')
+ case "$sim" in /org/freedesktop/ModemManager1/SIM/[0-9]*) ;; *) return 0;; esac
+ sim_report=$(mmcli --timeout=3 -i "$sim" -K 2>/dev/null) || return 0
+ operator=$(printf '%s\n' "$sim_report" | awk '$1 == "sim.properties.operator-code" && $2 == ":" { print $3; exit }')
+ printf '%s\n' "$operator" | grep -Eq '^[0-9]{5,6}$' || return 0
+ # These two home-network codes were observed during UFI003 acceptance.
+ # Use the SIM's home code, not the serving PLMN (which can be roaming).
+ case "$operator" in 46001|46009) action=ps-preferred;; *) action=cs-preferred;; esac
+ # Never alter the baseline for another carrier unless this service applied PS.
+ if [ "$action" = cs-preferred ] && [ ! -f "$owned" ]; then return 0; fi
+ calls=$(mmcli --timeout=3 -m any --voice-list-calls 2>/dev/null) || return 0
+ [ "$calls" = 'No calls were found' ] || return 0
+ if result=$("$helper" "$action" 2>/dev/null); then
+  if [ "$action" = ps-preferred ]; then
+   if [ ! -f "$owned" ] && printf '%s\n' "$result" | grep -qx 'runtime voice domain requested=3'; then
+    : >"$owned"
+    echo 'carrier-voice: Unicom runtime IMS preference ready'
+   fi
+  else
+   rm -f "$owned"
+   echo 'carrier-voice: restored the runtime CS preference after carrier change'
+  fi
+ fi
+}
+trap 'exit 0' INT TERM
+while :; do sample; sleep 15 & wait $!; done

@@ -46,6 +46,7 @@ BASE_POLKIT = {
         NM + 'network-control': 'activate and deactivate a connection (join a network, go back to the saved one)',
         NM + 'settings.modify.system': 'add, change and delete the system connection profiles the agent owns',
         NM + 'wifi.scan': 'ask for a scan',
+        NM + 'enable-disable-wifi': 'authenticated device console Wi-Fi radio switch; saved profiles and USB unchanged',
     },
     'etc/polkit-1/rules.d/50-nassimhub-modemmanager-messaging.rules': {
         'org.freedesktop.ModemManager1.Messaging': 'list, send and delete SMS through ModemManager',
@@ -59,9 +60,9 @@ SETUP_AP_POLKIT = {
 }
 # Never granted to the agent, switch or no switch, so the table above cannot be
 # widened to them by a careless edit without a test failing: an open access
-# point, and the actions that turn networking or radios off for the whole
+# point, and the actions that turn all networking or cellular off for the whole
 # device.
-NEVER_GRANTED = {NM + 'wifi.share.open', NM + 'enable-disable-network', NM + 'enable-disable-wifi',
+NEVER_GRANTED = {NM + 'wifi.share.open', NM + 'enable-disable-network',
                  NM + 'enable-disable-wwan', NM + 'settings.modify.global-dns', NM + 'settings.modify.hostname',
                  NM + 'reload', NM + 'checkpoint-rollback'}
 POLKIT_DIRS = ('etc/polkit-1/rules.d/', 'usr/share/polkit-1/rules.d/', 'usr/local/share/polkit-1/rules.d/')

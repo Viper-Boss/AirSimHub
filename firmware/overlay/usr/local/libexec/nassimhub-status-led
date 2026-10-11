@@ -1,0 +1,52 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Only read ModemManager's cached state; never send AT/QMI commands.
+set -eu
+export LC_ALL=C
+leds=/sys/class/leds
+enabled=${NSH_STATUS_LED_ENABLED:-yes}
+last=
+failures=0
+
+off() {
+ for name in 'blue:' 'green:wan' 'red:'; do
+  p="$leds/$name"
+  [ -w "$p/trigger" ] || continue
+  printf 'none\n' > "$p/trigger"
+  printf '0\n' > "$p/brightness"
+ done
+}
+show() {
+ [ "$1" != "$last" ] || return 0
+ off
+ case "$1" in
+  registered) p="$leds/green:wan"; trigger=default-on;;
+  failed) p="$leds/red:"; trigger=timer;;
+  waiting) p="$leds/blue:"; trigger=timer;;
+  *) last=$1; return 0;;
+ esac
+ if [ -w "$p/trigger" ]; then
+  printf '%s\n' "$trigger" > "$p/trigger"
+  if [ "$trigger" = timer ]; then
+   printf '300\n' > "$p/delay_on"
+   printf '1700\n' > "$p/delay_off"
+  fi
+ fi
+ last=$1
+ printf 'status-led: %s\n' "$last"
+}
+sample() {
+ # "any" survives ModemManager renumbering after a modem restart.
+ report=$(mmcli --timeout=3 -m any -K 2>/dev/null) || report=
+ state=$(printf '%s\n' "$report" | awk '$1 == "modem.generic.state" && $2 == ":" {print $3; exit}')
+ case "$state" in
+  registered|connecting|connected|disconnecting) failures=0; show registered;;
+  failed) failures=$((failures + 1)); if [ "$failures" -ge 3 ]; then show failed; else show waiting; fi;;
+  *) failures=0; show waiting;;
+ esac
+}
+trap 'off' EXIT
+trap 'exit 0' INT TERM
+case "$enabled" in no|false|0) off; exit 0;; esac
+show waiting
+while :; do sample; sleep 10 & wait $!; done

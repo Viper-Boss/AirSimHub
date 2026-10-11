@@ -430,6 +430,31 @@ def _inside(root, relative):
     return root / relative
 
 
+def brand_system(root):
+    """Brand the device while preserving Debian package compatibility."""
+    root = pathlib.Path(root)
+    path = root / 'etc/os-release'
+    # Debian normally uses an absolute symlink; resolve it within the image.
+    source = root / str(path.readlink()).lstrip('/') if path.is_symlink() and path.readlink().is_absolute() else path
+    lines = source.read_text(encoding='utf8').splitlines()
+    replacements = {'NAME': '"AirSimHub"', 'PRETTY_NAME': '"AirSimHub (Debian GNU/Linux 13)"'}
+    output = []
+    for line in lines:
+        key = line.partition('=')[0]
+        output.append(key + '=' + replacements.pop(key) if key in replacements else line)
+    output.extend(key + '=' + value for key, value in replacements.items())
+    if path.is_symlink():
+        path.unlink()
+    path.write_text('\n'.join(output) + '\n', encoding='utf8')
+    path.chmod(0o644)
+    for name in ('issue', 'issue.net'):
+        banner = root / 'etc' / name
+        if banner.is_symlink():
+            banner.unlink()
+        banner.write_text('AirSimHub (Debian GNU/Linux 13)\n', encoding='utf8')
+        banner.chmod(0o644)
+
+
 def finalize(root, epoch, user=None):
     """Turn a bootstrapped tree into a clean, device-independent one."""
     root = pathlib.Path(root)
@@ -477,6 +502,7 @@ def finalize(root, epoch, user=None):
             fields = entry.split(':')
             if len(fields) > 1 and not fields[1].startswith(('!', '*')):
                 raise BuildError(f'account {fields[0]} has a usable or empty password in {name}')
+    brand_system(root)
     clamp_mtime(root, epoch)
 
 

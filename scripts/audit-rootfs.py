@@ -36,7 +36,7 @@ VENDOR = ('usr/lib/', 'usr/share/', 'usr/include/', 'usr/src/', 'usr/bin/', 'usr
 STATE_DIRS = ('var/lib/nassimhub', 'var/lib/NetworkManager', 'root/.ssh', 'root/.config', 'home',
               'var/lib/rmtfs', 'var/lib/iwd', 'var/lib/bluetooth', 'etc/ssl/private', 'persist')
 # The only files the image ships in the agent's configuration directory.
-NASSIMHUB_ETC = {'agent.conf', 'ota-keys.json'}
+NASSIMHUB_ETC = {'agent.conf', 'ota-keys.json', 'status-led.conf'}
 # Debian 13 libpam-modules' unmodified namespace helper computes passwd with
 # getent; it contains no preset password. An edited copy does not qualify.
 PUBLIC_CONFIG_SCRIPTS = {
@@ -97,6 +97,11 @@ def audit(root, setup_ap=False):
         expected = PUBLIC_CONFIG_SCRIPTS.get(relative)
         if expected and hashlib.sha256(pathlib.Path(absolute).read_bytes()).hexdigest() == expected:
             categories.discard('credential')
+        if relative == 'etc/nassimhub/status-led.conf':
+            contents = pathlib.Path(absolute).read_text(encoding='utf8')
+            entries = [line.strip() for line in contents.splitlines() if line.strip() and not line.lstrip().startswith('#')]
+            if entries not in [['NSH_STATUS_LED_ENABLED=yes'], ['NSH_STATUS_LED_ENABLED=no']]:
+                categories.add('invalid-status-led-config')
         if relative == 'etc/nassimhub/ota-keys.json':
             with open(absolute, 'rb') as handle:
                 if rules.public_keyring_problem(handle.read()):

@@ -129,7 +129,7 @@ ln -s ../nassimhub-sim-number.timer "$layer/etc/systemd/system/timers.target.wan
 install -m 0644 "$here/node/deploy/nassimhub-agent-resources.conf" "$layer/etc/systemd/system/nassimhub-agent.service.d/resources.conf"
 chmod 0755 "$layer/usr/local/libexec/"nassimhub-*
 chmod 0600 "$layer/etc/NetworkManager/system-connections/nassimhub-usb.nmconnection"
-for unit in nassimhub-agent nassimhub-usb nassimhub-device-firmware; do
+for unit in nassimhub-agent nassimhub-usb nassimhub-device-firmware nassimhub-status-led; do
  ln -s "../$unit.service" "$layer/etc/systemd/system/multi-user.target.wants/$unit.service"
 done
 if [ -n "$keys" ]; then

@@ -61,6 +61,11 @@
       "package": "polkitd",
       "verified_image_list": true,
       "why": "Explicit runtime dependency for the NetworkManager and ModemManager authorization rules. Verified installed on the working Debian 13 device (126-2); do not rely on optional recommends."
+    },
+    {
+      "package": "bluez",
+      "verified_image_list": true,
+      "why": "Bluetooth controller power and discovery verified on the current UFI003 on 2026-10-11; peripheral pairing and audio profiles still require dedicated acceptance."
     }
   ],
   "setup_access_point_only": [

@@ -11,7 +11,8 @@
     "qrtr-tools",
     "rmtfs",
     "alsa-utils",
-    "polkitd"
+    "polkitd",
+    "bluez"
   ],
   "setup_access_point": {
     "packages": [

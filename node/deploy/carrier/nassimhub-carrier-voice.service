@@ -1,0 +1,24 @@
+[Unit]
+Description=UFI003 bounded runtime carrier voice preference
+After=ModemManager.service
+Wants=ModemManager.service
+ConditionPathExists=/etc/nassimhub/local-volte.enabled
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/nassimhub-carrier-voice
+Restart=on-failure
+RestartSec=15
+RuntimeDirectory=nassimhub-carrier-voice
+RuntimeDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

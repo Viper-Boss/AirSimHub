@@ -1,0 +1,21 @@
+[Unit]
+Description=UFI003 cellular registration status LEDs
+Wants=ModemManager.service
+After=ModemManager.service
+ConditionPathExists=/sys/class/leds/green:wan
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/nassimhub/status-led.conf
+ExecStart=/usr/local/libexec/nassimhub-status-led
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=5
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -21,6 +21,10 @@ step 'device-owned firmware loader: real script in isolated roots (root required
 python3 "$here/scripts/test_device_firmware.py"
 step 'radio resume: isolated files only; no real radio is started'
 python3 "$here/scripts/test_radio_resume.py"
+step 'status LEDs: isolated LEDs, cached modem state, debounce and cleanup'
+python3 "$here/scripts/test_status_led.py"
+step 'carrier voice preference: isolated modem state, ownership and active-call guards'
+python3 "$here/scripts/test_carrier_voice.py"
 step 'overlay units and polkit rules: syntax, and decisions against the documented grants'
 sh "$here/scripts/test-setup-ap-overlay.sh"
 step 'SPDX licence coverage of scripts/, kernel/, node/'
