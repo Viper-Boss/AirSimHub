@@ -1068,6 +1068,13 @@ func (h *handler) decode(w http.ResponseWriter, r *http.Request, operation strin
 		h.writeAPIError(w, proto.ErrorInvalidArgument, operation, "", "invalid JSON request")
 		return false
 	}
+	// The body must hold exactly one JSON document. A second value or any
+	// trailing bytes are a smuggling attempt, and the node API must not be
+	// laxer than the admin panel, which already rejects this.
+	if decoder.Decode(new(any)) != io.EOF {
+		h.writeAPIError(w, proto.ErrorInvalidArgument, operation, "", "invalid JSON request")
+		return false
+	}
 	return true
 }
 
