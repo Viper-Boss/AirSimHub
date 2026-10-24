@@ -1,0 +1,17 @@
+[Unit]
+Description=Compressed zram swap for the memory-constrained stick
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/nassimhub/zram.conf
+# Best effort: on a kernel with zram built in this is a no-op; on a kernel
+# without zram at all the failure is ignored and the script reports honestly.
+ExecStartPre=-/sbin/modprobe zram
+ExecStart=/usr/local/libexec/nassimhub-zram
+ExecStop=/usr/local/libexec/nassimhub-zram stop
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

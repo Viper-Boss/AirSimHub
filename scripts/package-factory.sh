@@ -129,7 +129,7 @@ ln -s ../nassimhub-sim-number.timer "$layer/etc/systemd/system/timers.target.wan
 install -m 0644 "$here/node/deploy/nassimhub-agent-resources.conf" "$layer/etc/systemd/system/nassimhub-agent.service.d/resources.conf"
 chmod 0755 "$layer/usr/local/libexec/"nassimhub-*
 chmod 0600 "$layer/etc/NetworkManager/system-connections/nassimhub-usb.nmconnection"
-for unit in nassimhub-agent nassimhub-usb nassimhub-device-firmware nassimhub-status-led; do
+for unit in nassimhub-agent nassimhub-usb nassimhub-device-firmware nassimhub-status-led nassimhub-zram; do
  ln -s "../$unit.service" "$layer/etc/systemd/system/multi-user.target.wants/$unit.service"
 done
 if [ -n "$keys" ]; then
@@ -326,6 +326,18 @@ else:
                     'files': [], 'polkit_actions_added': [], 'capabilities_added': [],
                     'configuration': {'provisioning_ap': 'off'}, 'required_packages': []}
 
+# Storage budget, stated from what the overlay actually carries rather than
+# from this script's defaults: the two cannot drift apart if this is read back.
+storage = {
+    'journal': {'drop_in': 'etc/systemd/journald.conf.d/00-nassimhub-storage-budget.conf',
+                'system_max_use': '120M', 'system_keep_free': '400M',
+                'file_present': (overlay / 'etc/systemd/journald.conf.d/00-nassimhub-storage-budget.conf').is_file()},
+    'zram_swap': {'enabled': True, 'unit': 'etc/systemd/system/nassimhub-zram.service',
+                  'default_uncompressed_mib': 192, 'configuration': '/etc/nassimhub/zram.conf (optional, zram_mib)',
+                  'verified_on_hardware': False,
+                  'without_kernel_zram': 'the unit reports and exits 0; no swap exists'},
+}
+
 # AGPL-3.0 section 6: where the corresponding source is. Stated only as far as
 # it is known at packaging time; an unset SOURCE_URL is said to be unset.
 source = {'repository_commit': commit, 'working_tree_modified': {'true': True, 'false': False}.get(dirty, 'unknown'),
@@ -391,7 +403,9 @@ common = ['nassimhub-agent (factory agent, /usr/bin, never modified by updates)'
           'default configuration /etc/nassimhub/agent.conf',
           'persistent state mount (NSHSTATE) and state check; first-boot ownership of /var/lib/nassimhub',
           'USB NCM gadget with development-only USB IDs',
-          'NetworkManager configuration and polkit rules for the nassimhub user']
+          'NetworkManager configuration and polkit rules for the nassimhub user',
+          'journal storage budget (system-wide cap, firmware/overlay/etc/systemd/journald.conf.d)',
+          'compressed zram swap unit (no-op on kernels without zram; NOT verified on hardware)']
 if setup_ap == 'on':
     common.append('Wi-Fi setup access point enabled (NSH_SETUP_AP=on): polkit wifi.share.protected and CAP_NET_BIND_SERVICE '
                   'for the agent, provisioning_ap = auto; NOT verified on hardware')
@@ -408,6 +422,7 @@ not_implemented = [
     'audio DTB or q6 kernel modules chosen by variant: the boot image is the packager\'s input',
     'SSH server, serial console or debug tooling chosen by variant: the packager installs no Debian packages',
     'size-reduced Lite root filesystem: both variants use the same input rootfs',
+    'zram swap: enabled in the image but never verified on hardware; on a kernel without zram the unit quietly does nothing',
     access_point_gap,
     'product USB VID/PID',
     'signature over the factory package: SHA256SUMS is integrity only',
@@ -434,7 +449,7 @@ manifest = {
     'board': lock['board'], 'distro': lock['distro'], 'kernel': lock['kernel_version'], 'architecture': lock['architecture'],
     'root_spec': root_spec, 'image_format': 'raw-ext4', 'signed': False,
     'agent': {key: info.get(key) for key in ('version', 'sha256', 'size', 'go_version', 'goos', 'goarch', 'go_mod', 'ml_dsa_available', 'node_tree_sha256')},
-    'updates': updates, 'setup_access_point': access_point,
+    'updates': updates, 'setup_access_point': access_point, 'storage': storage,
     'features': features[variant], 'not_implemented': not_implemented,
     'generic': 'No device identity, pairing state, administrator password, Wi-Fi credential, SSH key, device certificate, '
                'modem NV/EFS/calibration, IMEI/ICCID/phone number, log or SMS is included; all of it is created on the device '
