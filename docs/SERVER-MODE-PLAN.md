@@ -1,6 +1,6 @@
 # 独立服务器模式：账户与 SSH 管理
 
-状态：2026-10-08 第一优先级的账户与 SSH 管理已实现并部署 dev46；真机普通用户创建、公钥登录、sudo 授予/撤销、锁定/解锁、SSH 开关和保留家目录删除已通过。网页使用模拟 DOM 验证，真实浏览器视觉与管理员操作待用户验收。后续项仍按下文处理。详见 SYSTEM-ADMIN.md。
+状态：2026-10-24 第二优先级中"第三方程序使用独立 Linux 用户与 systemd 单元，配置 MemoryMax、CPUWeight、TasksMax"已有源码实现与离线测试（systemadmin 的 program_install/program_remove/program_status，见 SYSTEM-ADMIN.md；未真机验证，网页界面未接入）。2026-10-08 记录：第一优先级的账户与 SSH 管理已实现并部署 dev46；真机普通用户创建、公钥登录、sudo 授予/撤销、锁定/解锁、SSH 开关和保留家目录删除已通过。网页使用模拟 DOM 验证，真实浏览器视觉与管理员操作待用户验收。后续项仍按下文处理。详见 SYSTEM-ADMIN.md。
 
 ## 当前确认
 
