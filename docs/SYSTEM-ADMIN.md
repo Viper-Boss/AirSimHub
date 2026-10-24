@@ -13,3 +13,13 @@ Agent 不以 root 运行，也不接受任意 shell 命令。独立 root 服务�
 批量刷机包当前暂停；本功能的源码和安装工具不等于新的量产镜像已经构建和验收。
 
 安装时将二进制暂存于 `/var/tmp` 或根分区，避免挤占 `/run` 内存盘；systemd 重新加载配置需要足够的 `/run` 可用空间。账户仍有正在运行的进程时 Linux 会拒绝删除，先停止该账户的会话和程序，再手动提交。
+
+## 第三方程序管理
+
+「系统管理」接口新增固定操作 `program_install`、`program_remove` 和 `program_status`（经由同一 Unix 套接字与 SO_PEERCRED 校验，不接受任意命令或单元文本）。一个"程序"是设备所有者放在 `/usr/local/lib/nassimhub-programs/<名称>/` 下的可执行文件：安装时管理器为其创建锁定的系统用户 `nassimhub-p-<名称>`（nologin、无家目录内容），生成 `nassimhub-program-<名称>.service` 并 `enable --now`。
+
+资源上限由请求给出、服务端钳制：`memory_max_mib` 16–256（默认 64，`MemoryMax` 且 `MemorySwapMax=0`）、`cpu_weight` 1–100（默认 20）、`tasks_max` 16–256（默认 64）。单元内容完全由管理器生成，请求不能夹带任何单元指令；沙箱为严格档：`ProtectSystem=strict`、`PrivateTmp`、`PrivateDevices`、`NoNewPrivileges`、空 `CapabilityBoundingSet`、`SystemCallFilter=@system-service`、`MemoryDenyWriteExecute` 等，程序数据目录 `/var/lib/nassimhub-programs/<名称>`（0750，属程序用户）是唯一可写路径。需要更多权限的程序不应通过本管理器安装。崩溃循环的程序由 `StartLimitBurst=5`/300 秒止损，任何程序故障都不会重启整机。
+
+卸载会停止并删除单元、删除程序数据目录和用户，属预期数据清除。可执行文件必须位于自身程序目录内、root 所有、非组/其他可写，否则拒绝安装；安装失败不留半装单元。日志走 journald（`SyslogIdentifier=nassimhub-program-<名称>`），受日志总量上限保护。
+
+**边界**：仅离线测试（含 root 下完整安装/卸载流程测试），未在真机验证；网页界面尚未接入这些操作；379 MiB 内存设备上所有程序的 `MemoryMax` 总和没有全局调度，所有者需自行留出通话与管理余量；本节条目在 `docs/KNOWN_ISSUES.md` 有对应声明。

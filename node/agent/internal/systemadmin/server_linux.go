@@ -215,7 +215,8 @@ func (m *Manager) status(ctx context.Context) (Status, error) {
 			}
 		}
 	}
-	return Status{Accounts: a, SSH: v, Running: active == nil, HostFingerprint: fingerprint}, nil
+	return Status{Accounts: a, SSH: v, Running: active == nil, HostFingerprint: fingerprint,
+		Programs: m.programStatusList(ctx)}, nil
 }
 func sshConfig(v SSHSettings, dir string, accounts []Account) string {
 	names := []string{}
@@ -331,6 +332,15 @@ func (m *Manager) Execute(ctx context.Context, r Request) (Status, error) {
 	}
 	if e := m.prepare(); e != nil {
 		return Status{}, e
+	}
+	if r.Action == "program_status" {
+		return Status{Programs: m.programStatusList(ctx)}, nil
+	}
+	if r.Action == "program_install" {
+		return m.programInstall(ctx, *r.Program)
+	}
+	if r.Action == "program_remove" {
+		return m.programRemove(ctx, *r.Program)
 	}
 	if r.Action == "status" {
 		return m.status(ctx)

@@ -21,13 +21,36 @@ const Socket = "/run/nassimhub-system-admin/control.sock"
 const Unit = "nassimhub-user-ssh.service"
 
 type Request struct {
-	GPSRefresh int          `json:"gps_refresh,omitempty"`
-	Action     string       `json:"action"`
-	User       string       `json:"user,omitempty"`
-	Password   string       `json:"password,omitempty"`
-	Enabled    bool         `json:"enabled,omitempty"`
-	Keys       []string     `json:"keys,omitempty"`
-	SSH        *SSHSettings `json:"ssh,omitempty"`
+	GPSRefresh int             `json:"gps_refresh,omitempty"`
+	Action     string          `json:"action"`
+	User       string          `json:"user,omitempty"`
+	Password   string          `json:"password,omitempty"`
+	Enabled    bool            `json:"enabled,omitempty"`
+	Keys       []string        `json:"keys,omitempty"`
+	SSH        *SSHSettings    `json:"ssh,omitempty"`
+	Program    *ProgramRequest `json:"program,omitempty"`
+}
+
+// ProgramRequest installs or removes one third-party program. A program is an
+// executable the device owner placed under /usr/local/lib/nassimhub-programs/
+// <name>/, run by its own locked system user inside a sandboxed unit with the
+// resource envelope the owner chose; see SYSTEM-ADMIN.md.
+type ProgramRequest struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	ExecStart   []string `json:"exec_start"`
+	MemoryMaxMiB int     `json:"memory_max_mib,omitempty"`
+	CPUWeight    int     `json:"cpu_weight,omitempty"`
+	TasksMax     int     `json:"tasks_max,omitempty"`
+}
+
+// ProgramStatus is one installed program as the manager sees it.
+type ProgramStatus struct {
+	Name         string `json:"name"`
+	State        string `json:"state"`
+	MemoryMaxMiB int    `json:"memory_max_mib"`
+	CPUWeight    int    `json:"cpu_weight"`
+	TasksMax     int    `json:"tasks_max"`
 }
 type SSHSettings struct {
 	Enabled       bool `json:"enabled"`
@@ -45,18 +68,19 @@ type Account struct {
 	Keys   []string `json:"keys"`
 }
 type Status struct {
-	GPS             *GPSStatus  `json:"gps,omitempty"`
-	Accounts        []Account   `json:"accounts"`
-	SSH             SSHSettings `json:"ssh"`
-	Running         bool        `json:"running"`
-	HostFingerprint string      `json:"host_fingerprint,omitempty"`
+	GPS             *GPSStatus      `json:"gps,omitempty"`
+	Accounts        []Account       `json:"accounts"`
+	SSH             SSHSettings     `json:"ssh"`
+	Running         bool            `json:"running"`
+	HostFingerprint string          `json:"host_fingerprint,omitempty"`
+	Programs        []ProgramStatus `json:"programs,omitempty"`
 }
 
 var userName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,30}$`)
 
 func Validate(r Request) error {
 	if r.Action == "gps_status" || r.Action == "gps_power" || r.Action == "gps_interval" {
-		if r.User != "" || r.Password != "" || len(r.Keys) > 0 || r.SSH != nil {
+		if r.User != "" || r.Password != "" || len(r.Keys) > 0 || r.SSH != nil || r.Program != nil {
 			return errors.New("GPS takes no account arguments")
 		}
 		if r.Action == "gps_interval" {
@@ -73,10 +97,28 @@ func Validate(r Request) error {
 	}
 
 	if r.Action == "status" {
-		if r.User != "" || r.Password != "" || len(r.Keys) > 0 || r.SSH != nil || r.Enabled {
+		if r.User != "" || r.Password != "" || len(r.Keys) > 0 || r.SSH != nil || r.Enabled || r.Program != nil {
 			return errors.New("status takes no arguments")
 		}
 		return nil
+	}
+	if r.Action == "program_status" {
+		if r.User != "" || r.Password != "" || len(r.Keys) > 0 || r.SSH != nil || r.Enabled || r.Program != nil {
+			return errors.New("program_status takes no arguments")
+		}
+		return nil
+	}
+	if r.Action == "program_install" {
+		if r.User != "" || r.Password != "" || len(r.Keys) > 0 || r.SSH != nil || r.Enabled {
+			return errors.New("program_install takes no account arguments")
+		}
+		return validateProgramRequest(r.Program, true)
+	}
+	if r.Action == "program_remove" {
+		if r.User != "" || r.Password != "" || len(r.Keys) > 0 || r.SSH != nil || r.Enabled {
+			return errors.New("program_remove takes no account arguments")
+		}
+		return validateProgramRequest(r.Program, false)
 	}
 	if r.Action == "ssh" {
 		if r.SSH == nil || r.User != "" || r.Password != "" || len(r.Keys) > 0 || r.Enabled {
@@ -87,7 +129,7 @@ func Validate(r Request) error {
 		}
 		return nil
 	}
-	if !userName.MatchString(r.User) || r.User == "nassimhub" || r.SSH != nil {
+	if !userName.MatchString(r.User) || r.User == "nassimhub" || r.SSH != nil || r.Program != nil {
 		return errors.New("invalid or protected account")
 	}
 	switch r.Action {
