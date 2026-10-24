@@ -33,7 +33,7 @@
 | Linux 账户 / SSH 管理 | dev46 独立后台支持普通用户、root 密码/公钥、sudo、锁定、保留家目录删除及独立 SSH 开关；真机普通账户与公钥登录已验证，真实浏览器的新表单尚待验收；详见 [系统管理](docs/SYSTEM-ADMIN.md) |
 | SIM 本机号码 | 优先使用基带报告，支持读取当前设备 SIM 的 EF_MSISDN；仅对实际提供号码的卡有效，不保证任意 SIM 都存有号码；见 [自动号码](docs/AUTO-PHONE-NUMBER.md) |
 | 配网热点（setup access point） | 源码与离线测试已有；默认关闭，镜像侧前置条件仅在打包时 `NSH_SETUP_AP=on` 才带入。**未在真机验证**；独立后台已有口令显示入口，需确认管理密码 |
-| 温度、CPU 频率、eMMC 寿命、网卡计数、服务小区 | Agent 有采样代码；各数据源在本板上是否可读**未在真机验证**。服务小区带宽不上报；小区字段的来源定时器不在通用镜像里 |
+| 温度、CPU 频率、eMMC 寿命、网卡计数、服务小区 | Agent 有采样代码；各数据源在本板上是否可读**未在真机验证**。服务小区带宽：上报路径已有（真实上报才出值，未真机确认字段拼写）；小区字段的来源定时器不在通用镜像里 |
 | Debian 13 rootfs 构建 | `scripts/build-rootfs.sh`：snapshot.debian.org 固定时间戳 + 逐包版本锁 + 已验证内核制品的哈希与 vermagic 检查；bootstrap 之后的全部步骤与镜像生成有离线测试（合成输入）。已进行真实 Debian rootfs 构建，修正候选在一台 UFI003 上刷入并启动/重启验收；仓库默认锁仍是模板，通用发布包尚未重新构建和批量验收，见 [可用系统](docs/USABLE-SYSTEM.md) |
 | DTMF | Node 协议 1.5、NAS 路由和 ModemManager 按键发送已实现并通过离线测试；通用配置的 `voice_dtmf` 默认关闭；当前单设备已由用户完成语音菜单按键测试，不代表任意卡或通用镜像已支持。见 docs/CODEX_R130_DTMF_AND_DEVICE_POLICY.md |
 | Factory/OTA | 可复现的 Agent 构建、Factory 包（Lite/Dev）与 Agent OTA 发布打包、仓库外签名与校验、SBOM 与通用性检查均有离线测试；Agent 更新只替换 Agent 可执行文件。通用可刷写发布包及升级/回滚闭环 **未在真机验证**，见 docs/VALIDATION.md |

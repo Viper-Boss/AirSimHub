@@ -158,10 +158,13 @@ type AgentResource struct {
 // ObservedAt is when that report was taken, which can be older than the
 // surrounding document.
 type CellResource struct {
-	Band       string    `json:"band,omitempty"`
-	EARFCN     *uint32   `json:"earfcn,omitempty"`
-	PCI        *uint16   `json:"pci,omitempty"`
-	TAC        *uint32   `json:"tac,omitempty"`
-	CellID     *uint64   `json:"cell_id,omitempty"`
-	ObservedAt time.Time `json:"observed_at"`
+	Band   string  `json:"band,omitempty"`
+	EARFCN *uint32 `json:"earfcn,omitempty"`
+	PCI    *uint16 `json:"pci,omitempty"`
+	TAC    *uint32 `json:"tac,omitempty"`
+	CellID *uint64 `json:"cell_id,omitempty"`
+	// BandwidthMHz is the reported downlink bandwidth of the serving cell.
+	// nil means the modem did not report it; it is never computed or guessed.
+	BandwidthMHz *float64  `json:"bandwidth_mhz,omitempty"`
+	ObservedAt   time.Time `json:"observed_at"`
 }

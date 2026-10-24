@@ -71,6 +71,16 @@ func parseCell(data string) *proto.CellResource {
 		case "cell_id":
 			v := n
 			cell.CellID, any = &v, true
+		case "dl_bw_khz":
+			// Downlink bandwidth in kHz as the modem reported it; 1-100 MHz
+			// are the LTE values. Out-of-range numbers are dropped, not
+			// clamped: a wrong report must not become a plausible one. It
+			// does not count towards "any": a bandwidth alone, with no other
+			// field, does not identify a serving cell.
+			if n >= 1000 && n <= 100000 {
+				v := float64(n) / 1000
+				cell.BandwidthMHz = &v
+			}
 		}
 	}
 	if !any {
@@ -100,6 +110,9 @@ func cellMetrics(cell *proto.CellResource) map[string]any {
 	}
 	if cell.CellID != nil {
 		result["cell_id_hex"] = fmt.Sprintf("%X", *cell.CellID)
+	}
+	if cell.BandwidthMHz != nil {
+		result["downlink_bandwidth_mhz"] = *cell.BandwidthMHz
 	}
 	// Frequency conversion is defined for this measured E-UTRA band only.
 	if cell.Band == "B3" && cell.EARFCN != nil {

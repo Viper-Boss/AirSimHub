@@ -12,7 +12,12 @@ earfcn=$(printf '%s\n' "$cell" | sed -n "s/.*EUTRA Absolute RF Channel Number: '
 pci=$(printf '%s\n' "$cell" | sed -n "s/.*Serving Cell ID: '\([0-9][0-9]*\)'.*/\1/p" | head -1)
 tac=$(printf '%s\n' "$cell" | sed -n "s/.*Tracking Area Code: '\([0-9][0-9]*\)'.*/\1/p" | head -1)
 cid=$(printf '%s\n' "$cell" | sed -n "s/.*Global Cell ID: '\([0-9][0-9]*\)'.*/\1/p" | head -1)
-for pair in "band=$band" "earfcn=$earfcn" "pci=$pci" "tac=$tac" "cell_id=$cid"; do
+# Downlink bandwidth, when the rf-band-info output states one. Integer MHz or
+# kHz spellings are taken as printed; anything else (a fractional value, an
+# enum, or no line at all) stays unreported rather than guessed - the exact
+# field wording of the installed libqmi can only be confirmed on the device.
+bw_khz=$(printf '%s\n' "$rf" | sed -n "s/.*[Bb]andwidth[^']*'\([0-9][0-9]*\) *MHz'.*/\1000/p;s/.*[Bb]andwidth[^']*'\([0-9][0-9]*\) *kHz'.*/\1/p" | head -1)
+for pair in "band=$band" "earfcn=$earfcn" "pci=$pci" "tac=$tac" "cell_id=$cid" "dl_bw_khz=$bw_khz"; do
  value=${pair#*=}; case "$value" in ''|*[!0-9]*) continue;; esac
  printf '%s\n' "$pair" >>"$tmp"
 done

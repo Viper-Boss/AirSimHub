@@ -91,7 +91,7 @@ const T = {
     lifeUsed: '{code}：已用额定寿命的 {from}–{to}%', lifeExceeded: '{code}：已超过额定寿命', notReportedCode: '{code}：设备未上报', reservedCode: '{code}：保留值，含义未知',
     preEolCodes: { 1: '{code}：正常', 2: '{code}：警告（预留块已消耗约 80%）', 3: '{code}：紧急' },
     agent: 'Agent 进程', pid: 'PID', rss: '常驻内存（RSS）', agentCpu: 'CPU 占用（占全部核心的份额）',
-    cell: '服务小区', band: '频段', earfcn: 'EARFCN', pci: 'PCI', tac: 'TAC', cellId: 'Cell ID', cellTime: '小区信息的采样时间', cellHint: '小区信息由模组上报，有自己的采样时间，可能早于本页其他数据。',
+    cell: '服务小区', band: '频段', earfcn: 'EARFCN', pci: 'PCI', tac: 'TAC', cellId: 'Cell ID', bandwidth: '下行带宽（MHz）', cellTime: '小区信息的采样时间', cellHint: '小区信息由模组上报，有自己的采样时间，可能早于本页其他数据。',
     system: '系统', threads: '线程数', bootId: '本次启动标识（boot_id）',
     ifaceRate: '速率 ↓ {rx} / ↑ {tx}', ifaceTotal: '累计 ↓ {rx} / ↑ {tx}', ifacePackets: '包 ↓ {rx} / ↑ {tx}', ifaceErrors: '错误 ↓ {rx} / ↑ {tx}',
   },
@@ -695,7 +695,7 @@ function renderTelemetry(r, m) {
     panel(e.cpu, cpuRows), panel(e.thermal, zoneRows), panel(e.memory, memoryRows), panel(e.storage, storageRows),
     panel(e.emmc, [[e.emmcDevice, orUnknown(emmc.device)], [e.lifeA, lifeText(emmc.life_time_est_a)], [e.lifeB, lifeText(emmc.life_time_est_b)], [e.preEol, preEolText(emmc.pre_eol)]]),
     panel(e.agent, [[e.pid, orUnknown(agent.pid)], [e.rss, size(agent.rss_bytes)], [e.agentCpu, orUnknown(agent.cpu_percent, n => fixed(1)(n) + '%')]]),
-    panel(e.cell, [[e.band, orUnknown(cell.band)], [e.earfcn, orUnknown(cell.earfcn)], [e.pci, orUnknown(cell.pci)], [e.tac, orUnknown(cell.tac)], [e.cellId, orUnknown(cell.cell_id)],
+    panel(e.cell, [[e.band, orUnknown(cell.band)], [e.earfcn, orUnknown(cell.earfcn)], [e.pci, orUnknown(cell.pci)], [e.tac, orUnknown(cell.tac)], [e.cellId, orUnknown(cell.cell_id)], [e.bandwidth, orUnknown(cell.bandwidth_mhz)],
       [e.cellTime, r.cell && observed ? observed.toLocaleString() : T.unknown]]),
     panel(e.system, [[e.threads, orUnknown(r.thread_count)], [e.bootId, orUnknown(r.boot_id), true]]),
   );
