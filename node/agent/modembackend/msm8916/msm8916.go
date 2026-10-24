@@ -73,6 +73,10 @@ type Backend struct {
 	imsAt         time.Time
 	imsState      proto.Tristate
 	imsVoiceState proto.Tristate
+	statusMu      sync.Mutex
+	statusAt      time.Time
+	statusCached  proto.ModemStatus
+	statusValid   bool
 }
 
 // New builds the stub. It performs no device access of any kind, so it is safe

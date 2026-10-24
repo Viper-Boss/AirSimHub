@@ -69,7 +69,34 @@ func accessTechnologies(fields map[string]string) string {
 	return strings.Join(values, " ")
 }
 
+// statusTTL bounds how long one full modem query cascade serves every caller.
+// GetStatus, GetSIMInfo, GetNetwork, GetSignal and the capability and SMS
+// gates all funnel through readOnlyStatus; without a cache each one re-runs
+// up to four systemctl+mmcli subprocess pairs serially. Five seconds keeps a
+// NAS poll cheap without hiding a state change for long. The IMS probe uses
+// the same pattern with a longer window.
+const statusTTL = 5 * time.Second
+
+// readOnlyStatus returns the modem state, reusing the previous observation
+// while it is fresher than statusTTL. The mutex is held across the query
+// cascade, so concurrent callers coalesce into a single subprocess run
+// instead of each paying for their own. The cascade runs detached from the
+// caller's context on purpose: one disconnecting request must not cache a
+// half-cancelled observation that every other caller then trusts.
 func (b *Backend) readOnlyStatus(ctx context.Context) proto.ModemStatus {
+	b.statusMu.Lock()
+	defer b.statusMu.Unlock()
+	if b.statusValid && b.now().Sub(b.statusAt) < statusTTL {
+		return b.statusCached
+	}
+	status := b.queryModemStatus(context.WithoutCancel(ctx))
+	b.statusAt = b.now()
+	b.statusCached = status
+	b.statusValid = true
+	return status
+}
+
+func (b *Backend) queryModemStatus(ctx context.Context) proto.ModemStatus {
 	observed := b.now().UTC()
 	status := proto.ModemStatus{
 		State:      proto.ModemOffline,
