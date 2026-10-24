@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+# Compressed swap in RAM. The board has roughly 379 MiB of RAM and no disk to
+# swap to; without swap a memory spike kills the agent - and anything else the
+# owner runs on the stick - instead of merely slowing the device down.
+#
+# A kernel without zram support is not an error: the script reports and exits
+# zero, the same honesty as the LED controller on a board without LEDs. Only a
+# kernel that HAS zram and then refuses the device is a failure.
+#
+# Offline tests patch the two sysfs roots below into a temporary directory;
+# keep them on one line each for that.
+control=/sys/class/zram-control
+block=/sys/block
+run=/run/nassimhub-zram-device
+
+size=${zram_mib:-192}
+case $size in
+	'' | *[!0-9]* | 0)
+		echo "nassimhub-zram: zram_mib must be a positive number of MiB, got '$size'" >&2
+		exit 1
+		;;
+esac
+
+device_of_marker() {
+	[ -f "$run" ] || return 1
+	cat "$run" 2>/dev/null
+}
+
+stop_zram() {
+	device=$(device_of_marker) || { echo "nassimhub-zram: nothing to stop"; exit 0; }
+	swapoff "/dev/zram$device" 2>/dev/null || :
+	echo "$device" > "$control/hot_remove" 2>/dev/null || :
+	rm -f "$run"
+	echo "nassimhub-zram: stopped /dev/zram$device"
+}
+
+start_zram() {
+	[ -d "$control" ] || {
+		echo "nassimhub-zram: kernel exposes no zram-control; no swap created"
+		exit 0
+	}
+	if device_of_marker >/dev/null 2>&1; then
+		echo "nassimhub-zram: already running on /dev/zram$(device_of_marker)" >&2
+		exit 1
+	fi
+	device=$(cat "$control/hot_add")
+	printf '%s\n' "$device" > "$run"
+	echo $((size * 1048576)) > "$block/zram$device/disksize"
+	mkswap "/dev/zram$device" >/dev/null
+	swapon -p 100 "/dev/zram$device"
+	echo "nassimhub-zram: enabled ${size} MiB (uncompressed) of swap on /dev/zram$device"
+}
+
+case "${1:-start}" in
+	start) start_zram ;;
+	stop) stop_zram ;;
+	*)
+		echo "usage: $0 [start|stop]" >&2
+		exit 2
+		;;
+esac
