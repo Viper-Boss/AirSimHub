@@ -104,6 +104,9 @@ func Open(options Options) (*Admin, error) {
 		if err := a.restoreSessions(); err != nil {
 			return nil, err
 		}
+		if err := a.restoreLockout(); err != nil {
+			return nil, err
+		}
 		// A crash between saving credentials and deleting the code must not reopen setup.
 		_ = os.Remove(filepath.Join(options.Dir, "admin-bootstrap.txt"))
 		return a, nil
@@ -196,6 +199,7 @@ func (a *Admin) save(password string) error {
 	a.bootstrap = ""
 	a.sessions = make(map[string]session)
 	_ = os.Remove(filepath.Join(a.options.Dir, "admin-sessions.json"))
+	_ = os.Remove(filepath.Join(a.options.Dir, lockoutFile))
 	_ = os.Remove(filepath.Join(a.options.Dir, "admin-bootstrap.txt"))
 	return nil
 }
@@ -505,7 +509,7 @@ func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.cred.Hash == "" {
 		if !equal(v.SetupCode, a.bootstrap) {
-			if lock := a.refused(); lock > 0 {
+			if lock := a.refuse(); lock > 0 {
 				a.logf("first-time setup locked for %s after %d refused proofs", lock, a.failures)
 			}
 			fail(w, 401, "初始化码无效")
@@ -521,7 +525,7 @@ func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 		}
 		a.logf("management password created; first-time setup is closed")
 	} else if !equal(hash(v.Password, a.cred.Salt), a.cred.Hash) {
-		if lock := a.refused(); lock > 0 {
+		if lock := a.refuse(); lock > 0 {
 			a.logf("sign-in locked for %s after %d refused attempts", lock, a.failures)
 		} else {
 			a.logf("sign-in refused (%d consecutive)", a.failures)
@@ -529,7 +533,7 @@ func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "管理密码错误")
 		return
 	}
-	a.failures = 0
+	a.forgive()
 	a.lockedUntil = time.Time{}
 	s := a.createSession(w)
 	respond(w, 200, map[string]string{"csrf": s.CSRF})
@@ -548,7 +552,7 @@ func (a *Admin) password(w http.ResponseWriter, r *http.Request, _ string, _ htt
 		return
 	}
 	if len(v.Current) > 256 || !equal(hash(v.Current, a.cred.Salt), a.cred.Hash) {
-		a.refused()
+		a.refuse()
 		fail(w, 401, "原密码错误")
 		return
 	}
@@ -561,7 +565,7 @@ func (a *Admin) password(w http.ResponseWriter, r *http.Request, _ string, _ htt
 		return
 	}
 	// save dropped every session, this one included; the caller gets a new one.
-	a.failures = 0
+	a.forgive()
 	a.logf("management password changed; every other session was signed out")
 	s := a.createSession(w)
 	respond(w, 200, map[string]string{"csrf": s.CSRF})

@@ -125,7 +125,7 @@ func (a *Admin) setupAPReveal(w http.ResponseWriter, r *http.Request, _ string, 
 		return
 	}
 	if a.cred.Hash == "" || len(v.Current) > 256 || !equal(hash(v.Current, a.cred.Salt), a.cred.Hash) {
-		if lock := a.refused(); lock > 0 {
+		if lock := a.refuse(); lock > 0 {
 			a.logf("setup access point passphrase request locked for %s after %d refused attempts", lock, a.failures)
 		} else {
 			a.logf("setup access point passphrase request refused: wrong management password (%d consecutive)", a.failures)
@@ -134,7 +134,7 @@ func (a *Admin) setupAPReveal(w http.ResponseWriter, r *http.Request, _ string, 
 		failCode(w, 401, "wrong_password", "管理密码错误")
 		return
 	}
-	a.failures = 0
+	a.forgive()
 	a.mu.Unlock()
 	ssid, passphrase, err := source.SetupAPCredential()
 	if err != nil || passphrase == "" {
