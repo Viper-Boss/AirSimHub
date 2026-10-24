@@ -47,12 +47,12 @@ func (a *Admin) systemChange(w http.ResponseWriter, r *http.Request, _ string, _
 		return
 	}
 	if a.cred.Hash == "" || len(v.Current) > 256 || !equal(hash(v.Current, a.cred.Salt), a.cred.Hash) {
-		a.refused()
+		a.refuse()
 		a.mu.Unlock()
 		failCode(w, 401, "wrong_password", "管理密码错误")
 		return
 	}
-	a.failures = 0
+	a.forgive()
 	source := a.sources.System
 	a.mu.Unlock()
 	if source == nil {
