@@ -29,7 +29,7 @@
 
 ## 2. 依赖清单（摘要，完整内容在 `firmware/rootfs-dependencies.json`）
 
-安装的包 = `docs/INSTALL.md` 为已验证镜像列出的名单，**不多不少**：`systemd`、`ca-certificates`、`network-manager`、`wpasupplicant`、`modemmanager`、`libqmi-utils`、`qrtr-tools`、`rmtfs`、`alsa-utils`、`polkitd`；`--setup-ap` 时加 `dnsmasq-base`（配网热点本身未在真机验证）。其余由依赖关系带入，解析后的锁逐一列出。
+安装的包 = `docs/INSTALL.md` 为已验证镜像列出的名单，**不多不少**：`systemd`、`ca-certificates`、`network-manager`、`wpasupplicant`、`modemmanager`、`libqmi-utils`、`qrtr-tools`、`rmtfs`、`alsa-utils`、`polkitd`；`--setup-ap` 时加 `dnsmasq-base`（配网热点本身未在真机验证）；`--system-admin` 时加 `openssh-server`、`openssh-client`、`sudo`、`passwd`（独立系统管理服务所需；激活仍需手动安装，未在真机验证）。其余由依赖关系带入，解析后的锁逐一列出。
 
 **没有**按印象添加的包。下列各项在仓库里找不到“已验证镜像装了它”的记录，因此只列在 `not_installed` 里并标记 `unverified - not in the verified image list`：`libmbim-utils`、`protection-domain-mapper`、`tqftpserv`、`openssh-server`。若 Codex 在已验证设备上确认其中某个包确实存在且必需，做法是：把包名加入 `firmware/debian-packages.json` 的 `base` **和** `docs/INSTALL.md`，在 `rootfs-dependencies.json` 里移到 `installed`，再重新 `--lock`。
 
@@ -87,7 +87,7 @@ uid/gid 必须与已有设备一致：状态分区（NSHSTATE）上的文件归�
 ~~~sh
 sudo sh scripts/build-rootfs.sh --lock --timestamp 20260101T000000Z \
      --boot-img /path/boot.img --modules /path/modules-6.12.49.tar \
-     --service-uid <N> --service-gid <N> --image-size-mib <N>      # 需要配网热点时加 --setup-ap
+     --service-uid <N> --service-gid <N> --image-size-mib <N>      # 需要配网热点时加 --setup-ap；需要系统管理服务时加 --system-admin
 ~~~
 
 时间戳是 snapshot.debian.org 上存在的一个快照（`YYYYMMDDTHHMMSSZ`），由发布负责人选定；`SOURCE_DATE_EPOCH` 取同一时刻。脚本：用 mmdebstrap 从 `https://snapshot.debian.org/archive/debian/<ts>/`（`trixie main`）和 `…/debian-security/<ts>/`（`trixie-security main`）bootstrap 一次；读出 `var/lib/dpkg/status`；取两个归档的 `InRelease`（gpgv 验签）与 `Packages`（按 `InRelease` 校验），要求**每个已安装的包版本都出现在锁定的索引里**并记下 .deb 的 SHA-256；写回 `firmware/rootfs.lock.json`（`status: "resolved"`）。
@@ -109,7 +109,7 @@ The lock is resolved: review the diff of …/rootfs.lock.json (package list and 
 
 ~~~sh
 sudo sh scripts/build-rootfs.sh --out /build/rootfs-a --boot-img /path/boot.img --modules /path/modules-6.12.49.tar
-#   可选：--firmware-dir /path/model-firmware     --setup-ap（必须与解析锁时一致）
+#   可选：--firmware-dir /path/model-firmware     --setup-ap / --system-admin（必须与解析锁时一致）
 ~~~
 
 脚本依次：核对锁已解析、内核 release 与两个 SHA-256 → mmdebstrap（同一快照）→ 解包（不含设备节点）→ **核对已安装的包集合与锁逐包相同**（不同则列出差异并失败）→ 创建 `nassimhub`（固定 uid/gid、锁定口令、nologin）→ 清除 apt 列表与缓存、日志、machine-id、SSH 主机密钥、随机种子、构建机的 `resolv.conf` 等 → 写固定的 hostname/hosts/时区（Etc/UTC）/locale（C.UTF-8）→ 安装模块（vermagic 检查）→ 可选固件 → mtime 截到 `SOURCE_DATE_EPOCH` → `audit-rootfs.py` → 确定性 tar（按名排序、数字属主、无 atime/ctime）→ `ROOTFS-MANIFEST.json`。失败时输出目录改名为 `<out>.FAILED`。

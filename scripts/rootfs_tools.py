@@ -213,7 +213,7 @@ def load_lock(path):
     return lock
 
 
-def requested_packages(lock, setup_ap=False, catalogue=None):
+def requested_packages(lock, setup_ap=False, system_admin=False, catalogue=None):
     """The package names the bootstrap is asked for.
 
     Taken from firmware/debian-packages.json (the list docs/INSTALL.md gives
@@ -223,15 +223,20 @@ def requested_packages(lock, setup_ap=False, catalogue=None):
     if catalogue is None:
         catalogue = json.loads(PACKAGES_JSON.read_text())
     names = list(catalogue['base'])
+    groups = []
     if setup_ap:
         names += catalogue['setup_access_point']['packages']
+        groups.append('the setup access point')
+    if system_admin:
+        names += catalogue['system_admin']['packages']
+        groups.append('the system administration packages')
     for name in names:
         if not PACKAGE_NAME.match(name):
             raise BuildError(f'package name {name!r} is not usable')
     recorded = lock.get('packages', {}).get('requested')
     if lock.get('status') == RESOLVED and sorted(recorded or []) != sorted(names):
         raise BuildError('the lock was resolved for another package list than firmware/debian-packages.json'
-                         + (' with the setup access point' if setup_ap else '') + '; run --lock again')
+                         + (' with ' + ' and '.join(groups) if groups else '') + '; run --lock again')
     return names
 
 
@@ -267,13 +272,13 @@ def lock_problems(lock):
 
 
 def resolve_lock(lock, status_text, timestamp, indexes=(), release_files=(), kernel=None, uid=None, gid=None,
-                 image_mib=None, setup_ap=False, test_fixture=False, catalogue=None):
+                 image_mib=None, setup_ap=False, system_admin=False, test_fixture=False, catalogue=None):
     """A resolved copy of the lock, from what a bootstrap actually installed."""
     if not SNAPSHOT.match(timestamp):
         raise BuildError('the snapshot timestamp must look like 20260101T000000Z')
     lock = json.loads(json.dumps(lock))
     lock['status'] = UNRESOLVED  # so requested_packages does not compare against the old list
-    names = requested_packages(lock, setup_ap, catalogue)
+    names = requested_packages(lock, setup_ap, system_admin, catalogue)
     packages = installed_packages(status_text)
     installed = {package['name'] for package in packages}
     missing = sorted(set(names) - installed)
@@ -307,7 +312,8 @@ def resolve_lock(lock, status_text, timestamp, indexes=(), release_files=(), ker
     lock['snapshot'] = dict(lock.get('snapshot', {}), timestamp=timestamp,
                             release_sha256=[hashlib.sha256(release.encode()).hexdigest() for release in release_files])
     lock['source_date_epoch'] = epoch
-    lock['packages'] = {'requested': sorted(names), 'setup_access_point': bool(setup_ap), 'versions': packages,
+    lock['packages'] = {'requested': sorted(names), 'setup_access_point': bool(setup_ap), 'system_admin': bool(system_admin),
+                        'versions': packages,
                         'manifest_sha256': digest, 'count': len(packages),
                         'deb_hashes': 'from the pinned Packages indexes' if entries else 'not recorded'}
     if kernel:
@@ -837,6 +843,7 @@ def main(argv):
     include = commands.add_parser('lock-include')
     include.add_argument('lock')
     include.add_argument('--setup-ap', action='store_true')
+    include.add_argument('--system-admin', action='store_true')
     resolve = commands.add_parser('lock-resolve')
     resolve.add_argument('--lock', required=True)
     resolve.add_argument('--status', required=True)
@@ -851,6 +858,7 @@ def main(argv):
     resolve.add_argument('--gid', type=int)
     resolve.add_argument('--image-mib', type=int)
     resolve.add_argument('--setup-ap', action='store_true')
+    resolve.add_argument('--system-admin', action='store_true')
     resolve.add_argument('--test-fixture', action='store_true')
     verify = commands.add_parser('verify-packages')
     verify.add_argument('--lock', required=True)
@@ -899,7 +907,7 @@ def main(argv):
                   f"{len(lock['packages']['versions'])} packages, manifest sha256 {lock['packages']['manifest_sha256']}")
             return 0
         if arguments.command == 'lock-include':
-            print(','.join(requested_packages(load_lock(arguments.lock), arguments.setup_ap)))
+            print(','.join(requested_packages(load_lock(arguments.lock), arguments.setup_ap, arguments.system_admin)))
             return 0
         if arguments.command == 'lock-resolve':
             kernel = {key: value for key, value in (('release', arguments.kernel_release), ('boot_img_sha256', arguments.boot_img_sha256),
@@ -908,7 +916,8 @@ def main(argv):
                                 indexes=[pathlib.Path(path).read_text(encoding='utf-8') for path in arguments.index],
                                 release_files=[pathlib.Path(path).read_text(encoding='utf-8', errors='replace') for path in arguments.release_file],
                                 kernel=kernel, uid=arguments.uid, gid=arguments.gid, image_mib=arguments.image_mib,
-                                setup_ap=arguments.setup_ap, test_fixture=arguments.test_fixture)
+                                setup_ap=arguments.setup_ap, system_admin=arguments.system_admin,
+                                test_fixture=arguments.test_fixture)
             pathlib.Path(arguments.out).write_text(json.dumps(lock, indent=2) + '\n')
             print(f"wrote {arguments.out}: status {lock['status']!r}, {lock['packages']['count']} packages, "
                   f"manifest sha256 {lock['packages']['manifest_sha256']}")

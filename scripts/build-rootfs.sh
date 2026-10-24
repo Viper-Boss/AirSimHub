@@ -5,11 +5,11 @@
 #   Resolve the lock (once per base-system refresh; needs network and mmdebstrap):
 #     sudo sh scripts/build-rootfs.sh --lock --timestamp 20260101T000000Z \
 #          --boot-img BOOT.IMG --modules MODULES --service-uid N --service-gid N \
-#          --image-size-mib N [--setup-ap]
+#          --image-size-mib N [--setup-ap] [--system-admin]
 #
 #   Build (needs network for the bootstrap, and mmdebstrap):
 #     sudo sh scripts/build-rootfs.sh --out DIR --boot-img BOOT.IMG --modules MODULES \
-#          [--firmware-dir DIR] [--setup-ap]
+#          [--firmware-dir DIR] [--setup-ap] [--system-admin]
 #
 #   Build WITHOUT a resolved lock (never a release input; the manifest says so):
 #     sudo SOURCE_DATE_EPOCH=N sh scripts/build-rootfs.sh --unlocked --out DIR \
@@ -41,6 +41,10 @@
 # Options:
 #   --lock-file FILE     default firmware/rootfs.lock.json
 #   --setup-ap           also install dnsmasq-base (firmware/debian-packages.json)
+#   --system-admin       also install openssh-server, openssh-client, sudo and
+#                        passwd (the system_admin group of the same file), so
+#                        the image can run node/deploy/install-system-admin.sh;
+#                        activation stays a manual root-run install
 #   --from-tar FILE      use an existing bootstrap archive instead of running
 #                        mmdebstrap; only with --unlocked (its contents cannot
 #                        be tied to the snapshot)
@@ -66,11 +70,13 @@ lock=$here/firmware/rootfs.lock.json
 out= boot= modules= firmware= timestamp= uid= gid= size= from_tar=
 unlocked=no
 setup_ap=
+system_admin=
 while [ "$#" -gt 0 ]; do
 	case $1 in
 	--lock) mode=lock; shift;;
 	--unlocked) unlocked=yes; shift;;
 	--setup-ap) setup_ap=--setup-ap; shift;;
+	--system-admin) system_admin=--system-admin; shift;;
 	--out|--boot-img|--modules|--firmware-dir|--timestamp|--service-uid|--service-gid|--image-size-mib|--from-tar|--lock-file)
 		[ "$#" -ge 2 ] || die "$1 needs a value"
 		case $1 in
@@ -123,7 +129,8 @@ archive_of() { printf '%s\n' "$1" | sed "s/{timestamp}/$2/"; }
 # by design, hence the apt option.
 bootstrap() {
 	command -v mmdebstrap >/dev/null 2>&1 || die 'mmdebstrap not found. On a Debian/Ubuntu build host: apt install mmdebstrap qemu-user-static binfmt-support debian-archive-keyring gpgv e2fsprogs'
-	include=$(tools lock-include "$lock" $setup_ap) || exit 1
+	# shellcheck disable=SC2086 # each variable is one flag or nothing
+	include=$(tools lock-include "$lock" $setup_ap $system_admin) || exit 1
 	if [ -n "$1" ]; then
 		main_archive=$(archive_of "$(lock_field snapshot.archive)" "$1")
 		security_archive=$(archive_of "$(lock_field snapshot.security_archive)" "$1")
@@ -172,10 +179,10 @@ if [ "$mode" = lock ]; then
 		# "all" packages are listed in the architecture's index too.
 		set -- "$@" --index "$work/Packages.$index" --release-file "$work/InRelease.$index"
 	done
-	# shellcheck disable=SC2086 # $setup_ap is one flag or nothing
+	# shellcheck disable=SC2086 # each variable is one flag or nothing
 	tools lock-resolve --lock "$lock" --status "$work/status" --timestamp "$timestamp" --out "$work/lock.json" "$@" \
 		--kernel-release "$kernel_release" --boot-img-sha256 "$boot_sha" --modules-sha256 "$modules_sha" \
-		--uid "$uid" --gid "$gid" --image-mib "$size" $setup_ap
+		--uid "$uid" --gid "$gid" --image-mib "$size" $setup_ap $system_admin
 	cp "$work/lock.json" "$lock"
 	tools lock-check --release "$lock"
 	echo "The lock is resolved: review the diff of $lock (package list and versions), commit it, then build."
@@ -279,10 +286,10 @@ tar_sha=$(sha256sum < "$out/rootfs.tar" | cut -d' ' -f1)
 
 printf '%s' "$reasons" > "$work/reasons"
 python3 - "$out" "$lock" "$release_input" "$work/reasons" "$timestamp" "$epoch" "$package_sha" "$package_count" "$bootstrap_by" \
-	"$kernel_release" "$boot_sha" "$modules_sha" "$work/firmware.json" "$uid" "$gid" "$tree_sha" "$tree_count" "$tar_sha" "${setup_ap:-}" <<'PY'
+	"$kernel_release" "$boot_sha" "$modules_sha" "$work/firmware.json" "$uid" "$gid" "$tree_sha" "$tree_count" "$tar_sha" "${setup_ap:-}" "${system_admin:-}" <<'PY'
 import hashlib, json, os, pathlib, sys
 (out, lock_path, release_input, reasons, timestamp, epoch, package_sha, package_count, bootstrap, kernel_release, boot_sha,
- modules_sha, firmware, uid, gid, tree_sha, tree_count, tar_sha, setup_ap) = sys.argv[1:20]
+ modules_sha, firmware, uid, gid, tree_sha, tree_count, tar_sha, setup_ap, system_admin) = sys.argv[1:21]
 lock = json.loads(pathlib.Path(lock_path).read_text())
 files = json.loads(pathlib.Path(firmware).read_text())
 release = release_input == 'yes'
@@ -300,7 +307,8 @@ manifest = {
     'source_date_epoch': int(epoch),
     'bootstrap': bootstrap,
     'package_set': {'sha256': package_sha, 'count': int(package_count), 'file': 'PACKAGES.tsv',
-                    'setup_access_point_packages': bool(setup_ap)},
+                    'setup_access_point_packages': bool(setup_ap),
+                    'system_admin_packages': bool(system_admin)},
     'service_user': {'name': lock['service_user']['name'], 'uid': int(uid), 'gid': int(gid)},
     'kernel': {'release': kernel_release, 'boot_img_sha256': boot_sha, 'modules_sha256': modules_sha,
                'vermagic': 'every installed module matches the release read from the boot image',

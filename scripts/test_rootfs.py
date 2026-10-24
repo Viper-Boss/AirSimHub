@@ -313,6 +313,10 @@ class LockTests(unittest.TestCase):
         self.assertEqual(lock['kernel']['release'], RELEASE)
         self.assertEqual(tools.requested_packages(lock), BASE)
         self.assertEqual(tools.requested_packages(lock, setup_ap=True), BASE + ['dnsmasq-base'])
+        self.assertEqual(tools.requested_packages(lock, system_admin=True),
+                         BASE + ['openssh-server', 'openssh-client', 'sudo', 'passwd'])
+        self.assertEqual(tools.requested_packages(lock, setup_ap=True, system_admin=True),
+                         BASE + ['dnsmasq-base', 'openssh-server', 'openssh-client', 'sudo', 'passwd'])
         with self.assertRaises(tools.BuildError):
             tools.requested_packages(lock, catalogue={'base': ['bad name;rm'], 'setup_access_point': {'packages': []}})
 
@@ -367,6 +371,8 @@ class LockTests(unittest.TestCase):
         lock = fixture_lock()
         with self.assertRaises(tools.BuildError):
             tools.requested_packages(lock, setup_ap=True)
+        with self.assertRaises(tools.BuildError):
+            tools.requested_packages(lock, system_admin=True)
 
     def test_verify_packages(self):
         lock = fixture_lock()
