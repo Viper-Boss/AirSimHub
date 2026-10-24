@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"golang.org/x/sys/unix"
 	"io"
 	"net"
@@ -24,10 +25,19 @@ type Runner func(context.Context, string, string, ...string) (string, error)
 type Manager struct {
 	Root string
 	Run  Runner
+	// Logf receives failed system-command diagnostics: the command line, the
+	// exit status and the tool's own stderr. nil writes to standard error,
+	// which journald captures when the server runs as a service. Account
+	// passwords travel on stdin and are never logged.
+	Logf func(format string, arguments ...any)
 	mu   sync.Mutex
 }
 
-func command(ctx context.Context, input, name string, args ...string) (string, error) {
+// command runs one system tool and returns its output. Its failure error is
+// deliberately generic because it crosses the socket to the web backend, but
+// the command's own stderr is written to the log first: "system command
+// failed" alone leaves an operator with nothing to investigate.
+func command(ctx context.Context, logf func(string, ...any), input, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -36,12 +46,15 @@ func command(ctx context.Context, input, name string, args ...string) (string, e
 	if err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
+			logf("%s %s failed: exit %d%s", name, strings.Join(args, " "), exit.ExitCode(), stderrDetail(exit.Stderr))
 			if name == "/usr/bin/systemctl" && strings.Contains(string(exit.Stderr), "not enough space") {
 				return "", errors.New("insufficient /run space; remove temporary staging files and retry manually")
 			}
 			if name == "/usr/sbin/userdel" && exit.ExitCode() == 8 {
 				return "", errors.New("account has running processes; stop its sessions or programs before deleting it")
 			}
+		} else {
+			logf("%s %s failed: %v", name, strings.Join(args, " "), err)
 		}
 		return "", errors.New("system command failed; check installed packages or account state")
 	}
@@ -50,13 +63,37 @@ func command(ctx context.Context, input, name string, args ...string) (string, e
 	}
 	return string(b), nil
 }
+
+// stderrDetail carries a tool's raw diagnostic into the log only, trimmed
+// hard and collapsed to one line.
+func stderrDetail(stderr []byte) string {
+	detail := strings.TrimSpace(string(stderr))
+	if detail == "" {
+		return ""
+	}
+	if len(detail) > 512 {
+		detail = detail[:512] + "..."
+	}
+	return " stderr: " + strings.Join(strings.Fields(detail), " ")
+}
 func (m *Manager) path(p string) string { return filepath.Join(m.Root, p) }
 func (m *Manager) exec(ctx context.Context, input, name string, args ...string) (string, error) {
 	run := m.Run
 	if run == nil {
-		run = command
+		run = func(ctx context.Context, input, name string, args ...string) (string, error) {
+			return command(ctx, m.logf, input, name, args...)
+		}
 	}
 	return run(ctx, input, name, args...)
+}
+
+// logf forwards to the injected sink or to the process's standard error.
+func (m *Manager) logf(format string, arguments ...any) {
+	if m.Logf != nil {
+		m.Logf(format, arguments...)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "nassimhub-system-admin: "+format+"\n", arguments...)
 }
 func (m *Manager) dir() string { return m.path("/etc/nassimhub/system-admin") }
 func (m *Manager) prepare() error {
