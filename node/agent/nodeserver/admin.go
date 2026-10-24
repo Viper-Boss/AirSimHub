@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 	"github.com/human-agent65535/nassimhub-node/agent/internal/logbuf"
 	"github.com/human-agent65535/nassimhub-node/agent/internal/pairing"
 	"github.com/human-agent65535/nassimhub-node/agent/internal/pqidentity"
- "github.com/human-agent65535/nassimhub-node/agent/internal/systemadmin"
+	"github.com/human-agent65535/nassimhub-node/agent/internal/systemadmin"
 	"github.com/human-agent65535/nassimhub-node/agent/netbackend"
 	"github.com/human-agent65535/nassimhub-node/agent/nodetls"
 	"github.com/human-agent65535/nassimhub-node/agent/ota"
@@ -31,7 +32,28 @@ import (
 // AdminHandler is the independent browser console. It never serves the Core
 // protocol, whose original identity, certificate and listener remain separate.
 func (s *Server) AdminHandler() http.Handler { return s.adminHandler }
-func (s *Server) AdminAddress() string       { return s.adminAddress }
+func (s *Server) AdminAddress() string {
+	s.srvMu.Lock()
+	defer s.srvMu.Unlock()
+	return s.adminAddress
+}
+
+// adminPort is the port the console is actually reachable on. It prefers the
+// bound listener - which is the truth when the configured address asked for an
+// ephemeral port - and falls back to the configured address before Start has
+// run or after Stop has closed the listener.
+func (s *Server) adminPort() int {
+	s.srvMu.Lock()
+	address := s.adminAddress
+	s.srvMu.Unlock()
+	if address == "" {
+		address = s.options.AdminListen
+	}
+	_, rawPort, _ := net.SplitHostPort(address)
+	port, _ := strconv.Atoi(rawPort)
+	return port
+}
+
 func (s *Server) startAdmin() error {
 	if s.adminHandler == nil {
 		return nil
@@ -44,15 +66,17 @@ func (s *Server) startAdmin() error {
 	if err != nil {
 		return fmt.Errorf("listen for administration: %w", err)
 	}
-	s.adminAddress = listener.Addr().String()
 	server := &http.Server{Handler: s.adminHandler, TLSConfig: config, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 90 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	s.srvMu.Lock()
+	s.adminAddress = listener.Addr().String()
 	s.servers = append(s.servers, server)
+	s.srvMu.Unlock()
 	go func() {
 		if err := server.Serve(tls.NewListener(listener, config)); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.Logs.Errorf("admin", "management listener stopped: %v", err)
 		}
 	}()
-	s.Logs.Infof("admin", "local management ready on %s", s.adminAddress)
+	s.Logs.Infof("admin", "local management ready on %s", listener.Addr().String())
 	return nil
 }
 
@@ -65,7 +89,7 @@ func adminSources(loaded *identity.Identity, pairs *pairing.Store, postQuantum *
 	level proto.SecurityLevel, policy proto.PQIdentityPolicy, certificate *tls.Certificate,
 	updates httpapi.Updates, network netbackend.Backend, logs *logbuf.Buffer) localadmin.Sources {
 	sources := localadmin.Sources{
-  System: systemadmin.Client{},
+		System: systemadmin.Client{},
 		Security: func() localadmin.SecurityReport {
 			return adminSecurity(loaded, pairs, postQuantum, level, policy, certificate)
 		},

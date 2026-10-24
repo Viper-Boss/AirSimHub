@@ -229,9 +229,9 @@ func (s *Server) startKCP() error {
 		}
 		var served net.Listener = listenerAdapter{listener}
 		server := &http.Server{
-			Handler:           s.handler,
-			ReadHeaderTimeout: 10 * time.Second,
+			Handler: s.handler,
 		}
+		nodeListenerPolicy().apply(server)
 		if s.certificate != nil {
 			tlsConfig, err := s.serverTLSConfig()
 			if err != nil {
@@ -244,7 +244,9 @@ func (s *Server) startKCP() error {
 		s.transport.mu.Lock()
 		s.transport.listeners = append(s.transport.listeners, listener)
 		s.transport.mu.Unlock()
+		s.srvMu.Lock()
 		s.servers = append(s.servers, server)
+		s.srvMu.Unlock()
 
 		go func(server *http.Server, listener net.Listener) {
 			if err := server.Serve(listener); err != nil &&
