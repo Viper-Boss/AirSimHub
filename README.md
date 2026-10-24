@@ -40,7 +40,7 @@
 
 ## 下载、编译与目录
 
-安装 Go 1.24+（建议与验证环境一致使用 1.27.1）、Python 3、Linux 构建环境。内核工具另需 dtc、cpp、匹配的头文件及 aarch64 GCC。
+安装 Go 1.25+（agent 模块要求 go >= 1.25；建议与验证环境一致使用 1.27.1）、Python 3、Linux 构建环境。内核工具另需 dtc、cpp、匹配的头文件及 aarch64 GCC。
 
 ~~~sh
 sh scripts/check.sh
