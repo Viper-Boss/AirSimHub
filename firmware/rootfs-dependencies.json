@@ -98,11 +98,6 @@
       "why": "the full package adds a system-wide DNS/DHCP service; only dnsmasq-base is wanted, and only with the setup access point"
     },
     {
-      "package": "openssh-server",
-      "status": "unverified - not in the verified image list",
-      "why": "no SSH server is part of the documented image; an image that ships one must generate host keys on the device (none are in the image)"
-    },
-    {
       "package": "firmware-* (non-free-firmware)",
       "status": "never taken from Debian by this build",
       "why": "see `firmware` below"
@@ -118,5 +113,31 @@
     "device_model_specific_allowed": "files that are identical on every unit of the board model (modem and WCNSS firmware images as shipped on the device's firmware partitions). Whether a given file really is identical across units is the operator's check (compare SHA-256 from two units); this repository does not hold such a list and names no file",
     "device_unique_refused": "anything unique to one unit: modemst1, modemst2, fsg, fsc, persist (and files exported from them), *.qcn, *.xqcn, *.efs, *.nvm. Refused by name by scripts/genericrules.py - the same rule scripts/audit-rootfs.py applies to the whole tree - and never to be worked around by renaming",
     "how_the_verified_image_gets_firmware": "r134 read-only device inspection: the working system has modem.mdt, modem.b* and WCNSS firmware in /usr/lib/firmware. The GPT has no standalone modem firmware partition; do not assume a fresh Debian rootfs can reload firmware from one. These files are not included in the generic build. The device owner must preserve/provide its authorized firmware and calibration privately before replacing rootfs."
-  }
+  },
+  "system_admin_only": [
+    {
+      "package": "openssh-server",
+      "verified_image_list": false,
+      "status": "documented requirement of build-rootfs.sh --system-admin (the system_admin group of firmware/debian-packages.json); not in the verified image list and not hardware verified",
+      "why": "sshd for the separate user SSH service; required by node/deploy/install-system-admin.sh, which the device owner runs as root to enable the standalone system administration server (Linux accounts, sudo grants, a separate user SSH service). Host keys are generated on the device at first start - none are in the image"
+    },
+    {
+      "package": "openssh-client",
+      "verified_image_list": false,
+      "status": "documented requirement of build-rootfs.sh --system-admin (the system_admin group of firmware/debian-packages.json); not in the verified image list and not hardware verified",
+      "why": "ssh-keygen, used to generate and check the user SSH host key; required by node/deploy/install-system-admin.sh, which the device owner runs as root to enable the standalone system administration server (Linux accounts, sudo grants, a separate user SSH service)"
+    },
+    {
+      "package": "sudo",
+      "verified_image_list": false,
+      "status": "documented requirement of build-rootfs.sh --system-admin (the system_admin group of firmware/debian-packages.json); not in the verified image list and not hardware verified",
+      "why": "sudo and gpasswd (the sudo group it manages) for per-account privilege grants; required by node/deploy/install-system-admin.sh, which the device owner runs as root to enable the standalone system administration server (Linux accounts, sudo grants, a separate user SSH service)"
+    },
+    {
+      "package": "passwd",
+      "verified_image_list": false,
+      "status": "documented requirement of build-rootfs.sh --system-admin (the system_admin group of firmware/debian-packages.json); not in the verified image list and not hardware verified",
+      "why": "useradd, usermod, userdel and chpasswd for account management; required by node/deploy/install-system-admin.sh, which the device owner runs as root to enable the standalone system administration server (Linux accounts, sudo grants, a separate user SSH service)"
+    }
+  ]
 }

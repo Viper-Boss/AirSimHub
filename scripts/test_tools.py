@@ -679,7 +679,7 @@ class ImagePolicyTests(unittest.TestCase):
     def test_package_list_names_what_install_md_names(self):
         packages = json.loads((ROOT/'firmware/debian-packages.json').read_text())
         install = (ROOT/'docs/INSTALL.md').read_text()
-        for name in packages['base'] + packages['setup_access_point']['packages']:
+        for name in packages['base'] + packages['setup_access_point']['packages'] + packages['system_admin']['packages']:
             self.assertIn(name, install, f'{name} is in firmware/debian-packages.json but not in docs/INSTALL.md')
         self.assertEqual(imagepolicy.required_packages(str(ROOT)), ['dnsmasq-base'])
 
