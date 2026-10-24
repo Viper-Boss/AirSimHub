@@ -9,7 +9,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           cache: false
       - run: sh scripts/check.sh
       - run: sh scripts/build-agent.sh
+      - name: govulncheck (informational; never blocks CI)
+        # The go1.27.1 baseline had 10 reachable std-lib vulns (crypto/tls,
+        # net/http, net/textproto, os, http2, crypto/x509 ...): GO-2026-6599
+        # through GO-2026-6611 fixed in go1.27.2, GO-2026-6603/6612/6613/6617/
+        # 6809 in go1.27.3 — the reason this workflow moved to 1.27.3. This
+        # step keeps future advisories visible in the logs without failing the
+        # build during a disclosure window. @latest is deliberate: an
+        # informational scan should track the current advisory database.
+        continue-on-error: true
+        run: |
+          cd node
+          for m in agent proto xport; do
+            (cd "$m"; GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
+          done
