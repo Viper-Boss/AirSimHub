@@ -162,6 +162,14 @@ type Server struct {
 	options          Options
 	certificate      *tls.Certificate
 
+	// srvMu guards servers, listeners and adminAddress. Start appends to the
+	// first two while Serve goroutines and any caller of Addresses may be
+	// reading them, and Stop clears them while the same readers run; without
+	// the lock that is a slice-race panic waiting for a caller that reloads a
+	// listener at runtime. It mirrors linkMu and transport.mu, which already
+	// guard their own state the same way.
+	srvMu sync.Mutex
+
 	// transport carries the weak-network listener and the link counters. See
 	// transport.go; the standard TCP listeners above do not go through it,
 	// because TCP has no counters to report and inventing some would be worse
@@ -207,6 +215,45 @@ func gate(l *link, handler http.Handler) http.Handler {
 		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
+}
+
+// listenerPolicy is the request budget every Node-protocol listener serves
+// under, TCP and KCP alike. One function is the mechanical reason a KCP
+// connection cannot be given a weaker budget than a TCP one.
+type listenerPolicy struct {
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	IdleTimeout       time.Duration
+	MaxHeaderBytes    int
+}
+
+// nodeListenerPolicy bounds what a single connection can hold of a device with
+// a few hundred megabytes of memory, without pacing honest traffic.
+//
+// ReadTimeout is generous on purpose: the OTA artifact upload (PUT
+// /v1/ota/artifact) is a resumable body of up to proto.OTAMaxArtifactBytes that
+// a NAS on a weak-network link may take many minutes to push, and cutting it
+// mid-transfer is survivable - the protocol resumes from the received offset -
+// but wasteful. The timeout's job is only to end connections that drip bytes
+// forever. There is deliberately no WriteTimeout: GET /v1/calls/{id}/media
+// streams call audio for the length of a call, and any finite write deadline
+// would hang up every call at the same moment regardless of the conversation.
+func nodeListenerPolicy() listenerPolicy {
+	return listenerPolicy{
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Minute,
+		IdleTimeout:       90 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
+}
+
+// applyPolicy sets the fields of server that the policy owns. WriteTimeout is
+// not among them; see nodeListenerPolicy.
+func (p listenerPolicy) apply(server *http.Server) {
+	server.ReadHeaderTimeout = p.ReadHeaderTimeout
+	server.ReadTimeout = p.ReadTimeout
+	server.IdleTimeout = p.IdleTimeout
+	server.MaxHeaderBytes = p.MaxHeaderBytes
 }
 
 // New assembles a Node without starting it.
@@ -379,6 +426,9 @@ func New(options Options) (*Server, error) {
 	}
 
 	var certificate *tls.Certificate
+	// node is assigned by the return statement; the admin access closure
+	// below captures it and only runs per request, after New has returned.
+	var node *Server
 	if options.EnableTLS {
 		issued, err := nodetls.EnsureCertificate(nodetls.Options{
 			Dir:        options.StateDir,
@@ -442,11 +492,14 @@ func New(options Options) (*Server, error) {
 			options.AdminListen = "127.0.0.1:0"
 		}
 		adminWrap = func(api http.Handler) { adminHandler = admin.Wrap(api) }
+		// The closure outlives this function: it is stored in the handler and
+		// runs per request, by which time node below has been assigned. It
+		// reads the port through a method so it reports the bound listener
+		// rather than the configured address - an ephemeral configuration
+		// would otherwise publish port 0 to the NAS.
 		adminAccess = func() (bool, string, int) {
 			configured, proof := admin.OwnerSetup()
-			_, rawPort, _ := net.SplitHostPort(options.AdminListen)
-			port, _ := strconv.Atoi(rawPort)
-			return configured, proof, port
+			return configured, proof, node.adminPort()
 		}
 	}
 	handler := httpapi.New(httpapi.Options{
@@ -490,7 +543,7 @@ func New(options Options) (*Server, error) {
 	options.PQProfile = profile
 	options.PQPolicy = policy
 	options.TransportMode = mode
-	return &Server{deviceRadios: deviceRadios,
+	node = &Server{deviceRadios: deviceRadios,
 		Identity: loaded, Pairing: pairs, Logs: logs,
 		PQIdentity: postQuantum,
 		Trust:      gateOfTrust,
@@ -502,7 +555,8 @@ func New(options Options) (*Server, error) {
 		kcpProfile:  kcpProfile,
 		keys:        keys,
 		auth:        auth,
-	}, nil
+	}
+	return node, nil
 }
 
 // stricterIdentityPolicy returns whichever of two policies demands more.
@@ -555,8 +609,11 @@ func (s *Server) Scheme() string {
 // Addresses reports the addresses the Node is actually listening on, which is
 // what a caller needs when a listener was configured with port 0.
 func (s *Server) Addresses() []string {
-	addresses := make([]string, 0, len(s.listeners))
-	for _, listener := range s.listeners {
+	s.srvMu.Lock()
+	listeners := append([]net.Listener(nil), s.listeners...)
+	s.srvMu.Unlock()
+	addresses := make([]string, 0, len(listeners))
+	for _, listener := range listeners {
 		addresses = append(addresses, listener.Addr().String())
 	}
 	return addresses
@@ -583,9 +640,9 @@ func (s *Server) Start() error {
 		s.linkMu.Unlock()
 
 		server := &http.Server{
-			Handler:           gate(gateway, s.handler),
-			ReadHeaderTimeout: 10 * time.Second,
+			Handler: gate(gateway, s.handler),
 		}
+		nodeListenerPolicy().apply(server)
 		if s.certificate != nil {
 			// A failure here is a configuration this build cannot satisfy -
 			// most likely PQ_EXTREME on a toolchain without
@@ -601,8 +658,10 @@ func (s *Server) Start() error {
 			server.TLSConfig = tlsConfig
 			listener = tls.NewListener(listener, tlsConfig)
 		}
+		s.srvMu.Lock()
 		s.listeners = append(s.listeners, listener)
 		s.servers = append(s.servers, server)
+		s.srvMu.Unlock()
 
 		go func(server *http.Server, listener net.Listener) {
 			if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -666,13 +725,20 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.radioCancel = nil
 	}
 	var firstError error
-	for _, server := range s.servers {
+	// The snapshot is taken and the fields cleared under the lock, but the
+	// shutdown itself runs outside it: Shutdown waits for in-flight requests,
+	// and a caller reading Addresses must not queue behind that.
+	s.srvMu.Lock()
+	servers := s.servers
+	s.servers = nil
+	s.listeners = nil
+	s.adminAddress = ""
+	s.srvMu.Unlock()
+	for _, server := range servers {
 		if err := server.Shutdown(ctx); err != nil && firstError == nil {
 			firstError = err
 		}
 	}
-	s.servers = nil
-	s.listeners = nil
 	// http.Server.Shutdown closes the listeners it was given, but the KCP
 	// listener owns a UDP socket and a reader goroutine underneath that, so it
 	// is closed explicitly. Without this a restarted agent would find its own
