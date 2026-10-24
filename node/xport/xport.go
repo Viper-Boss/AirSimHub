@@ -33,6 +33,7 @@ package xport
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -40,6 +41,7 @@ import (
 
 	"github.com/human-agent65535/nassimhub-node/proto"
 	"github.com/human-agent65535/nassimhub-node/xport/kcp"
+	"github.com/human-agent65535/nassimhub-node/xport/quic"
 )
 
 // ErrUnsupported reports a transport this build cannot provide.
@@ -93,9 +95,18 @@ type Options struct {
 	KCPProfile  kcp.Profile
 	KCPFEC      kcp.FECMode
 	DialTimeout time.Duration
-	// QUICReady is whether a real QUIC implementation is linked in. It is
-	// false in this stage; see quicmock.
+	// QUICReady is whether AUTO may resolve to QUIC. A real QUIC transport is
+	// linked in and TransportQUIC works when asked for explicitly, but this
+	// stays false until the weak-link soak on real hardware has been done:
+	// switching a working connection's transport is a user-visible decision
+	// that wants evidence, not a version number. See quicmock for the contract
+	// the implementation follows.
 	QUICReady bool
+	// TLSConfig is the caller's TLS configuration - the same object served on
+	// the TCP listener: certificate, client CA, pinning callback. QUIC carries
+	// TLS inside the protocol instead of beneath it, so the QUIC transport is
+	// the one transport that needs it here; the others ignore it.
+	TLSConfig *tls.Config
 	// MaxSessions bounds how many KCP peers a listener will track. Zero uses
 	// the package default.
 	//
@@ -160,10 +171,11 @@ func New(options Options) (Transport, error) {
 			},
 		}, nil
 	case proto.TransportQUIC:
-		if !options.QUICReady {
-			return nil, fmt.Errorf("%w: quic", ErrUnsupported)
+		transport, err := quic.New(quic.Options{TLSConfig: options.TLSConfig, DialTimeout: options.DialTimeout})
+		if err != nil {
+			return nil, err
 		}
-		return nil, fmt.Errorf("%w: no quic implementation is linked in", ErrUnsupported)
+		return &quicTransport{transport: transport}, nil
 	default:
 		return nil, fmt.Errorf("xport: unhandled mode %q", mode)
 	}
@@ -268,3 +280,31 @@ type kcpListener struct{ *kcp.Listener }
 func (l kcpListener) Accept() (net.Conn, error) { return l.Listener.Accept() }
 func (l kcpListener) Close() error              { return l.Listener.Close() }
 func (l kcpListener) Addr() net.Addr            { return l.Listener.Addr() }
+
+// ---------------------------------------------------------------------------
+// QUIC
+// ---------------------------------------------------------------------------
+
+// quicTransport adapts the QUIC package's own Stats type into this package's;
+// xport imports quic, so quic cannot import xport back.
+type quicTransport struct{ transport *quic.Transport }
+
+func (t *quicTransport) Mode() proto.TransportMode { return t.transport.Mode() }
+
+func (t *quicTransport) Dial(ctx context.Context, address string) (net.Conn, error) {
+	return t.transport.Dial(ctx, address)
+}
+
+func (t *quicTransport) Listen(address string) (Listener, error) {
+	return t.transport.Listen(address)
+}
+
+func (t *quicTransport) Stats() Stats {
+	measured := t.transport.Stats()
+	return Stats{
+		Mode:      proto.TransportQUIC,
+		BytesSent: measured.BytesSent,
+		BytesRecv: measured.BytesRecv,
+		Measured:  measured.Measured,
+	}
+}

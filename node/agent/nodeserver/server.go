@@ -622,6 +622,10 @@ func (s *Server) Start() error {
 		_ = s.Stop(context.Background())
 		return err
 	}
+	if err := s.startQUIC(); err != nil {
+		_ = s.Stop(context.Background())
+		return err
+	}
 
 	if s.deviceRadios != nil {
 		ctx, cancel := context.WithCancel(context.Background())

@@ -1,13 +1,22 @@
 // Package quicmock is the QUIC transport's shape, without QUIC.
 //
-// # Why there is no real QUIC here
+// # Where the real QUIC is
+//
+// The real implementation lives in xport/quic (quic-go v0.64.1, which on
+// go1.27 hands the TLS handshake to the standard library's own tls.QUICConn -
+// no second TLS stack). It follows the three rules stated below. This package
+// stays: it is the written contract the implementation is reviewed against,
+// and the mock for callers that need a QUIC-shaped transport without UDP.
+//
+// # Why there was no real QUIC here
 //
 // QUIC is not something to write. It is a large protocol with a large attack
 // surface, and the sensible options are the two mature Go implementations -
-// quic-go and the standard library's golang.org/x/net/quic - both of which are
-// third-party or extended-standard-library modules that this container cannot
-// fetch: the module proxy is unreachable and every dependency in this project
-// is the Go standard library for that reason.
+// quic-go and the standard library's golang.org/x/net/quic. Writing one
+// instead would have been the worst of the three options. A hand-rolled QUIC
+// would be a second, unreviewed implementation of packet protection and
+// connection migration, in a codebase whose entire security argument rests on
+// not implementing cryptographic machinery itself.
 //
 // Writing one instead would be the worst of the three options. A hand-rolled
 // QUIC would be a second, unreviewed implementation of packet protection and
