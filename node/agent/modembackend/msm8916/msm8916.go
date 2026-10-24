@@ -6,12 +6,18 @@ package msm8916
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/human-agent65535/nassimhub-node/agent/modembackend"
 	"github.com/human-agent65535/nassimhub-node/proto"
 )
+
+// logFunc is the diagnostic sink backends log subprocess failures to. It goes
+// to the process log (journald under systemd), never into API responses.
+type logFunc func(format string, arguments ...any)
 
 // unimplemented is the single reason string every stub method carries, so a
 // caller reading a log can tell a stub from a genuine hardware failure.
@@ -33,6 +39,9 @@ type Options struct {
 	AudioCard string
 	// Now is injectable for tests.
 	Now func() time.Time
+	// Logf receives mmcli failure diagnostics, including the command's own
+	// stderr. nil writes to the process's standard error stream.
+	Logf logFunc
 	// ReadOnly enables ModemManager status queries. It never starts, enables,
 	// resets or configures the modem; unavailable services remain offline.
 	ReadOnly   bool
@@ -82,9 +91,17 @@ func New(options Options) *Backend {
 	if now == nil {
 		now = time.Now
 	}
+	logf := options.Logf
+	if logf == nil {
+		logf = func(format string, arguments ...any) {
+			fmt.Fprintf(os.Stderr, "nassimhub-agent: modem: "+format+"\n", arguments...)
+		}
+	}
 	run := options.Run
 	if run == nil {
-		run = runMMCLI
+		run = func(ctx context.Context, arguments ...string) (string, error) {
+			return runMMCLI(ctx, logf, arguments...)
+		}
 	}
 	runBusctl := options.RunBusctl
 	if runBusctl == nil {

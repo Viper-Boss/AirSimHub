@@ -13,19 +13,54 @@ import (
 
 // runMMCLI never activates a masked modem service. Checking systemd first is
 // important: contacting the D-Bus name directly could otherwise start it.
-func runMMCLI(ctx context.Context, arguments ...string) (string, error) {
+func runMMCLI(ctx context.Context, logf logFunc, arguments ...string) (string, error) {
 	check, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	if err := exec.CommandContext(check, "systemctl", "is-active", "--quiet", "ModemManager.service").Run(); err != nil {
+		// An inactive ModemManager is an expected state, not a failure worth a
+		// log record.
 		return "", errors.New("ModemManager is not active")
 	}
+	return queryMMCLI(ctx, logf, arguments...)
+}
+
+// queryMMCLI runs one mmcli query. Every failure is reported to the internal
+// log with the command's own stderr, because "ModemManager query failed"
+// alone leaves an operator with nothing to look at. The returned error stays
+// generic: the log line is for the device's own diagnostics, not for API
+// responses.
+func queryMMCLI(ctx context.Context, logf logFunc, arguments ...string) (string, error) {
 	query, stop := context.WithTimeout(ctx, 4*time.Second)
 	defer stop()
 	output, err := exec.CommandContext(query, "mmcli", arguments...).Output()
-	if err != nil || len(output) > 64*1024 {
+	if err != nil {
+		if logf != nil {
+			logf("mmcli %s failed: %v%s", strings.Join(arguments, " "), err, stderrDetail(err))
+		}
+		return "", errors.New("ModemManager query failed")
+	}
+	if len(output) > 64*1024 {
+		if logf != nil {
+			logf("mmcli %s output exceeded 64 KiB and was discarded", strings.Join(arguments, " "))
+		}
 		return "", errors.New("ModemManager query failed")
 	}
 	return string(output), nil
+}
+
+// stderrDetail carries a command's raw diagnostic into the internal log only.
+// It is trimmed hard: mmcli stderr is tool output, not protocol data, and the
+// log mirror on the device is size-capped.
+func stderrDetail(err error) string {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+		detail := strings.TrimSpace(string(exit.Stderr))
+		if len(detail) > 512 {
+			detail = detail[:512] + "..."
+		}
+		return " stderr: " + strings.Join(strings.Fields(detail), " ")
+	}
+	return ""
 }
 
 // mmcli's key-value mode has stable field names and avoids parsing localized
