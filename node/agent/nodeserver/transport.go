@@ -259,6 +259,71 @@ func (s *Server) startKCP() error {
 	return nil
 }
 
+// servesQUIC reports whether the QUIC listener should be opened: only under
+// an explicit quic mode. AUTO keeps resolving to the standard transport while
+// Options.QUICReady is false - the implementation is linked, the real-link
+// evidence is not - and unlike KCP there is no "the link is down, open
+// everything" argument for a transport the paired Core cannot dial yet.
+func servesQUIC(mode proto.TransportMode) bool {
+	return mode == proto.TransportQUIC
+}
+
+// startQUIC opens the QUIC listener on each configured address.
+//
+// The same handler and the same certificate; the TLS handshake happens inside
+// QUIC, so unlike the TCP and KCP paths there is no tls.NewListener here - the
+// tls.Config is handed DOWN into the transport, and the streams come up as
+// plain net.Conn. See xport/quic for the contract that keeps the pinning, the
+// identity and the no-0-RTT rule identical across transports.
+func (s *Server) startQUIC() error {
+	if !servesQUIC(s.transport.mode) {
+		return nil
+	}
+	addresses := s.options.KCPListeners
+	if len(addresses) == 0 {
+		addresses = s.options.Listeners
+	}
+	if s.certificate == nil {
+		// QUIC cannot run without TLS. Serving the standard listener anyway
+		// keeps the device reachable; the log says what is missing.
+		s.Logs.Errorf("server", "quic mode needs the device certificate; serving standard only")
+		return nil
+	}
+	tlsConfig, err := s.serverTLSConfig()
+	if err != nil {
+		return fmt.Errorf("configure tls for quic: %w", err)
+	}
+	transport, err := xport.New(xport.Options{Mode: proto.TransportQUIC, TLSConfig: tlsConfig})
+	if err != nil {
+		return fmt.Errorf("build quic transport: %w", err)
+	}
+	s.transport.mu.Lock()
+	s.transport.transport = transport
+	s.transport.mu.Unlock()
+	for _, address := range addresses {
+		listener, err := transport.Listen(address)
+		if err != nil {
+			return fmt.Errorf("listen for quic on %s: %w", address, err)
+		}
+		server := &http.Server{Handler: s.handler, ReadHeaderTimeout: 10 * time.Second}
+		s.transport.mu.Lock()
+		s.transport.listeners = append(s.transport.listeners, listener)
+		s.transport.mu.Unlock()
+		s.servers = append(s.servers, server)
+		go func(server *http.Server, listener xport.Listener) {
+			if err := server.Serve(listenerAdapter{listener}); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+				s.Logs.Errorf("server", "quic listener %s stopped: %v", listener.Addr(), err)
+			}
+		}(server, listener)
+		s.Logs.Infof("server", "serving node protocol over quic on %s", listener.Addr())
+	}
+	return nil
+}
+
+// stopQUIC is stopKCP: the listeners list is shared and closed there.
+func (s *Server) stopQUIC() {}
+
 // stopKCP closes the weak-network listeners.
 func (s *Server) stopKCP() {
 	s.transport.mu.Lock()

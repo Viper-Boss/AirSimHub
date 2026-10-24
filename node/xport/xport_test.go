@@ -1,7 +1,6 @@
 package xport
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/human-agent65535/nassimhub-node/proto"
@@ -34,16 +33,26 @@ func TestAutoResolvesToTheStandardTransport(t *testing.T) {
 	}
 }
 
-// An unavailable transport must fail loudly rather than quietly become another
-// one. A silent substitution would put traffic on a transport nobody chose.
+// A transport that cannot be built must fail loudly rather than quietly
+// become another one. A silent substitution would put traffic on a transport
+// nobody chose - and QUIC without a TLS configuration cannot run at all, so
+// it is refused, never handed back as the standard transport.
 func TestQUICIsRefusedRatherThanSubstituted(t *testing.T) {
-	if _, err := New(Options{Mode: proto.TransportQUIC}); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("quic returned %v, want ErrUnsupported", err)
+	transport, err := New(Options{Mode: proto.TransportQUIC})
+	if err == nil {
+		t.Fatal("quic without a tls configuration was accepted")
 	}
-	// Even with QUICReady set, there is no implementation linked in, and the
-	// error says so instead of handing back a TCP transport.
-	if _, err := New(Options{Mode: proto.TransportQUIC, QUICReady: true}); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("quic with QUICReady returned %v, want ErrUnsupported", err)
+	if transport != nil {
+		t.Fatalf("quic returned %v alongside an error", transport)
+	}
+	// QUICReady still does not change this: it governs AUTO resolution only,
+	// and a real implementation is no reason to auto-switch without evidence.
+	transport, err = New(Options{Mode: proto.TransportQUIC, QUICReady: true})
+	if err == nil || transport != nil {
+		t.Fatal("quic with QUICReady but no tls configuration was accepted")
+	}
+	if resolved := proto.AutoSelect(proto.AdviceNormal, false); resolved != proto.TransportStandard {
+		t.Fatalf("auto resolved to %q while quic is not soak-verified", resolved)
 	}
 }
 
